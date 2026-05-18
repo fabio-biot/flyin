@@ -1,20 +1,17 @@
 import sys
+from models import StartHub, EndHub, Hub, Drone, Connection, Parser
 
-def parser(path: str) -> None:
-    try:
-        with open(path, 'r') as l:
-            data = l.read()
-            print(data)
-    except FileNotFoundError as e:
-        print(f"Error while trying to read {path}: {e}")
+
     
 def params(data):
-    try:
+    nb_drones = "nb_drones: x"
+    start_hub = StartHub("start", 0, 0, max_drones, zone_type, color)
         
 
 def main():
     path = sys.argv[1]
-    parser(path)
+    parser = Parser("maps/easy/01_linear_path.txt")
+    parser.parse()
 
 if __name__ == "__main__":
     main()
