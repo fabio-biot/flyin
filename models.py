@@ -17,6 +17,7 @@ class Hub():
         self.zone_type = zone_type
         self.color = color
         self.max_drones = max_drones
+        self.connections = []
 
 
 class Connection:
@@ -51,8 +52,8 @@ class Move:
 
 class Network:
     def __init__(self):
-        self.connections = {}
-        self.hubs = []
+        self.connections = []
+        self.hubs = {}
         self.starthub = None
         self.endhub = None
 
@@ -85,6 +86,7 @@ class Parser:
                 lines = file.readlines()
         except FileNotFoundError as e:
             raise FileNotFoundError(f"Error while reading {self.path}: {e}")
+
         for line in lines:
             line = line.strip()
             if not line or line.startswith("#"):
@@ -100,6 +102,7 @@ class Parser:
                 hub = Hub(name, x, y, zone_type, color, max_drones)
                 network.hubs[name] = hub
                 network.start_hub = hub
+
             elif line.startswith("end_hub:"):
                 parts = line.split()
                 name = parts[1]
@@ -109,6 +112,7 @@ class Parser:
                 hub = Hub(name, x, y, zone_type, color, max_drones)
                 network.hubs[name] = hub
                 network.end_hub = hub
+
             elif line.startswith("hub:"):
                 parts = line.split()
                 name = parts[1]
@@ -117,9 +121,9 @@ class Parser:
                 zone_type, color, max_drones = self._parse_metadata(parts[4:])
                 hub = Hub(name, x, y, zone_type, color, max_drones)
                 network.hubs[name] = hub
+
             elif line.startswith("connection:"):
                 parts = line.split()
-
                 nodes = parts[1]
                 node1_name, node2_name = nodes.split("-")
 

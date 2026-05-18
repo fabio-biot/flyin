@@ -1,4 +1,3 @@
-import sys
 from models import StartHub, EndHub, Hub, Drone, Connection, Parser
 
 
@@ -9,9 +8,12 @@ def params(data):
         
 
 def main():
-    path = sys.argv[1]
     parser = Parser("maps/easy/01_linear_path.txt")
-    parser.parse()
+    network, nb_drones = parser.parse()
+    print(f"network {network}")
+    print(f"network {network.connections}")
+    print(f"network {network.hubs['goal'].x}")
+    print(f"nb drones {nb_drones}")
 
 if __name__ == "__main__":
     main()
