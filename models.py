@@ -9,22 +9,52 @@ class Simulation:
         self.drones = drones
         self.turn = 0
 
+    def run(self, pathfinder):
+        drone = self.drones[0]
+
+        drone.path = pathfinder.find_path(
+            self.network.start_hub,
+            self.network.end_hub
+        )
+
+        index = 0
+
+        while index < len(drone.path) - 1:
+
+            current = drone.path[index]
+            next_hub = drone.path[index + 1]
+
+            drone.current_hub = next_hub
+            index += 1
+            self.turn += 1
+
+            print(f"Turn {self.turn}: D{drone.id}-{next_hub.name}")
+
+        print("DONE")
+
+
 class Hub():
-    def __init__(self, name, x, y, max_drones=None, zone_type="normal", color=None):
+    def __init__(self, name, x, y, zone_type="normal", color="none", max_drones=1):
         self.name = name
-        self.x = x
-        self.y = y
-        self.zone_type = zone_type
-        self.color = color
-        self.max_drones = max_drones
-        self.connections = []
+        self.x: int = x
+        self.y: int = y
+        self.zone_type: str = zone_type
+        self.color: str = color
+        self.max_drones: int = max_drones
+        self.nb_drones: int = 0
+        self.connections: list[Connection] = []
+    def get_neighbors(self) -> list["Hub"]:
+        neighbors = []
+        for connection in self.connections:
+            neighbors.append(connection.other_side(self))
+        return neighbors
 
 
 class Connection:
     def __init__(self, hub1: Hub, hub2: Hub, max_capacity: int = 1):
-        self.hub1 = hub1
-        self.hub2 = hub2
-        self.max_capacity = max_capacity
+        self.hub1: Hub = hub1
+        self.hub2: Hub = hub2
+        self.max_capacity: int = max_capacity
         self.drones_in_transit: list["Drone"] = []
 
     def other_side(self, current: Hub) -> Hub:
@@ -35,42 +65,38 @@ class Connection:
 
 class Drone:
     def __init__(self, drone_id: int, start_hub: Hub):
-        self.id = drone_id
-        self.current_hub = start_hub
+        self.id: int = drone_id
+        self.current_hub: Hub = start_hub
         self.path: list[Hub] = []
-        self.remaining_turns = 0
-        self.current_connection = None
+        self.remaining_turns: int = 0
+        self.current_connection: Connection = None
 
 
 class Move:
     def __init__(self, drone, source, destination, connection):
-        self.drone = drone
-        self.source = source
-        self.destination = destination
-        self.connection = connection
+        self.drone: Drone = drone
+        self.source: Hub = source
+        self.destination: Hub = destination
+        self.connection: Connection = connection
 
 
 class Network:
     def __init__(self):
-        self.connections = []
-        self.hubs = {}
-        self.starthub = None
-        self.endhub = None
+        self.connections: list[Connection] = []
+        self.hubs: dict[str, Hub] = {}
+        self.start_hub: Hub = None
+        self.end_hub: Hub = None
 
 
 class StartHub(Hub):
-    def __init__(self):
+    def __init__(self, nb_drones_sim):
         super().__init__()
+        self.nb_drones = nb_drones_sim
 
 
 class EndHub(Hub):
     def __init__(self):
         super().__init__()
-
-
-class Drone():
-    def __init__(self):
-        pass
 
 
 class Parser:
@@ -168,3 +194,28 @@ class Parser:
                 max_drones = int(value)
 
         return zone_type, color, max_drones
+
+
+class Pathfinder:
+    def __init__(self):
+        pass
+
+    def find_path(self, start: Hub, end: Hub):
+        queue = [[start]]
+        visited = set()
+
+        while(queue):
+            path = queue.pop(0)
+            current_hub = path[-1]
+            if current_hub == end:
+                return path
+            if current_hub in visited:
+                continue
+            visited.add(current_hub)
+            for neighbor in current_hub.get_neighbors():
+                if neighbor.zone_type == "blocked":
+                    continue
+                new_path = path + [neighbor]
+                queue.append(new_path)
+            
+        return None
