@@ -84,8 +84,8 @@ class Network:
     def __init__(self):
         self.connections: list[Connection] = []
         self.hubs: dict[str, Hub] = {}
-        self.start_hub: Hub = None
-        self.end_hub: Hub = None
+        self.start_hub: StartHub = None
+        self.end_hub: EndHub = None
 
 
 class StartHub(Hub):
@@ -124,7 +124,7 @@ class Parser:
                 name = parts[1]
                 x = int(parts[2])
                 y = int(parts[3])
-                zone_type, color, max_drones = self._parse_metadata(parts[4:])
+                zone_type, color, max_drones = self.parse_metadata(parts[4:])
                 hub = Hub(name, x, y, zone_type, color, max_drones)
                 network.hubs[name] = hub
                 network.start_hub = hub
@@ -134,7 +134,7 @@ class Parser:
                 name = parts[1]
                 x = int(parts[2])
                 y = int(parts[3])
-                zone_type, color, max_drones = self._parse_metadata(parts[4:])
+                zone_type, color, max_drones = self.parse_metadata(parts[4:])
                 hub = Hub(name, x, y, zone_type, color, max_drones)
                 network.hubs[name] = hub
                 network.end_hub = hub
@@ -144,7 +144,7 @@ class Parser:
                 name = parts[1]
                 x = int(parts[2])
                 y = int(parts[3])
-                zone_type, color, max_drones = self._parse_metadata(parts[4:])
+                zone_type, color, max_drones = self.parse_metadata(parts[4:])
                 hub = Hub(name, x, y, zone_type, color, max_drones)
                 network.hubs[name] = hub
 
@@ -165,17 +165,14 @@ class Parser:
                         key, value = tag.split("=")
                         if key == "max_link_capacity":
                             max_link_capacity = int(value)
-
                 connection = Connection(hub1, hub2, max_link_capacity)
-
                 network.connections.append(connection)
-
                 hub1.connections.append(connection)
                 hub2.connections.append(connection)
 
         return network, nb_drones
 
-    def _parse_metadata(self, meta_parts: list[str]):
+    def parse_metadata(self, meta_parts: list[str]):
         zone_type = "normal"
         color = "none"
         max_drones = 1
@@ -218,4 +215,4 @@ class Pathfinder:
                 new_path = path + [neighbor]
                 queue.append(new_path)
             
-        return None
+        return path
