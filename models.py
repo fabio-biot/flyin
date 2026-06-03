@@ -3,36 +3,6 @@
 #         self.message = message
 #         super().__init__(message)
 
-class Simulation:
-    def __init__(self, network, drones):
-        self.network = network
-        self.drones = drones
-        self.turn = 0
-
-    def run(self, pathfinder):
-        drone = self.drones[0]
-
-        drone.path = pathfinder.find_path(
-            self.network.start_hub,
-            self.network.end_hub
-        )
-
-        index = 0
-
-        while index < len(drone.path) - 1:
-
-            current = drone.path[index]
-            next_hub = drone.path[index + 1]
-
-            drone.current_hub = next_hub
-            index += 1
-            self.turn += 1
-
-            print(f"Turn {self.turn}: D{drone.id}-{next_hub.name}")
-
-        print("DONE")
-
-
 class Hub():
     def __init__(self, name, x, y, zone_type="normal", color="none", max_drones=1):
         self.name = name
@@ -43,11 +13,104 @@ class Hub():
         self.max_drones: int = max_drones
         self.nb_drones: int = 0
         self.connections: list[Connection] = []
+
     def get_neighbors(self) -> list["Hub"]:
         neighbors = []
         for connection in self.connections:
             neighbors.append(connection.other_side(self))
         return neighbors
+
+
+class Simulation:
+    def __init__(self, network, drones, pathfinder):
+        self.network = network
+        self.drones = drones
+        self.pathfinder = pathfinder
+        self.turn = 0
+
+    def init_paths(self):
+        for drone in self.drones:
+            drone.path = self.pathfinder.find_path(
+                self.network.start_hub,
+                self.network.end_hub
+            )
+            drone.next_index = 0
+
+    def run(self, pathfinder):
+        self.init_paths()
+
+        while not self.all_delivered():
+            self.turn += 1
+            moves = self.compute_turn()
+            self.apply_moves(moves)
+            self.print_turn(moves)
+
+    def all_delivered(self):
+        return all(d.delivered for d in self.drones)
+    
+    def compute_turn(self):
+        moves = []
+
+        occupancy = self.get_occupancy()
+
+        for drone in self.drones:
+
+            if drone.delivered:
+                continue
+
+            path = drone.path
+            i = drone.next_index
+
+            if i + 1 >= len(path):
+                drone.delivered = True
+                continue
+
+            current = path[i]
+            next_hub = path[i + 1]
+
+            current_count = occupancy.get(next_hub, 0)
+
+            if (
+                next_hub != self.network.end_hub
+                and current_count >= next_hub.max_drones
+            ):
+                continue
+
+            moves.append((drone, current, next_hub))
+
+            occupancy[current] = occupancy.get(current, 0) - 1
+            occupancy[next_hub] = occupancy.get(next_hub, 0) + 1
+
+        return moves
+        
+    def apply_moves(self, moves):
+        for drone, src, dst in moves:
+            drone.next_index += 1
+            drone.current_hub = dst
+
+            if dst == self.network.end_hub:
+                drone.delivered = True
+    
+    def print_turn(self, moves):
+        if not moves:
+            print()
+            return
+
+        line = []
+        for drone, src, dst in moves:
+            line.append(f"D{drone.id}-{dst.name}")
+
+        print(" ".join(line))
+    
+    def get_occupancy(self) -> dict[Hub, int]:
+        occupancy = {}
+
+        for drone in self.drones:
+            if drone.delivered:
+                continue
+            hub = drone.current_hub
+            occupancy[hub] = occupancy.get(hub, 0) + 1
+        return occupancy
 
 
 class Connection:
@@ -70,6 +133,8 @@ class Drone:
         self.path: list[Hub] = []
         self.remaining_turns: int = 0
         self.current_connection: Connection = None
+        self.next_index = 0
+        self.delivered = False
 
 
 class Move:
@@ -89,14 +154,38 @@ class Network:
 
 
 class StartHub(Hub):
-    def __init__(self, nb_drones_sim):
-        super().__init__()
-        self.nb_drones = nb_drones_sim
+    def __init__(
+        self,
+        name: str,
+        x: int,
+        y: int,
+        nb_drones_sim: int,
+        zone_type: str = "normal",
+        color: str = "none",
+        max_drones: int = 999999,
+    ):
+        super().__init__(
+            name,
+            x,
+            y,
+            zone_type,
+            color,
+            max_drones
+        )
+        self.nb_drones_sim = nb_drones_sim
 
 
 class EndHub(Hub):
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self, name, x, y,
+        zone_type="normal",
+        color="none",max_drones=999999,
+    ):
+        super().__init__(
+            name, x, y,
+            zone_type,
+            color, max_drones
+        )
 
 
 class Parser:
@@ -106,6 +195,7 @@ class Parser:
     def parse(self) -> tuple["Network", int]:
         network = Network()
         nb_drones = 0
+        seen_connections = set()
 
         try:
             with open(self.path, "r") as file:
@@ -125,7 +215,7 @@ class Parser:
                 x = int(parts[2])
                 y = int(parts[3])
                 zone_type, color, max_drones = self.parse_metadata(parts[4:])
-                hub = Hub(name, x, y, zone_type, color, max_drones)
+                hub = StartHub(name, x, y, nb_drones, zone_type, color, max_drones)
                 network.hubs[name] = hub
                 network.start_hub = hub
 
@@ -135,7 +225,7 @@ class Parser:
                 x = int(parts[2])
                 y = int(parts[3])
                 zone_type, color, max_drones = self.parse_metadata(parts[4:])
-                hub = Hub(name, x, y, zone_type, color, max_drones)
+                hub = EndHub(name, x, y, zone_type, color, max_drones)
                 network.hubs[name] = hub
                 network.end_hub = hub
 
@@ -146,36 +236,49 @@ class Parser:
                 y = int(parts[3])
                 zone_type, color, max_drones = self.parse_metadata(parts[4:])
                 hub = Hub(name, x, y, zone_type, color, max_drones)
+                if name in network.hubs:
+                    raise ValueError(f"Duplicate hub '{name}'")
                 network.hubs[name] = hub
 
             elif line.startswith("connection:"):
                 parts = line.split()
-                nodes = parts[1]
-                node1_name, node2_name = nodes.split("-")
-
-                hub1 = network.hubs[node1_name]
-                hub2 = network.hubs[node2_name]
-
+                node1, node2 = parts[1].split("-")
+                if node1 not in network.hubs:
+                    raise ValueError(f"Unknown hub '{node1}'")
+                if node2 not in network.hubs:
+                    raise ValueError(f"Unknown hub '{node2}'")
+                hub1 = network.hubs[node1]
+                hub2 = network.hubs[node2]
                 max_link_capacity = 1
-
-                # to get metadqata with good formating
                 if len(parts) > 2:
                     meta = " ".join(parts[2:]).strip("[]")
                     for tag in meta.split():
                         key, value = tag.split("=")
                         if key == "max_link_capacity":
                             max_link_capacity = int(value)
+                if max_link_capacity <= 0:
+                    raise ValueError("max_link_capacity must be > 0")
+                key = tuple(sorted([node1, node2]))
+                if key in seen_connections:
+                    raise ValueError(f"Duplicate connection {node1}-{node2}")
+                seen_connections.add(key)
                 connection = Connection(hub1, hub2, max_link_capacity)
                 network.connections.append(connection)
                 hub1.connections.append(connection)
                 hub2.connections.append(connection)
-
+        if nb_drones <= 0:
+            raise ValueError("Invalid or missing nb_drones")
+        if network.start_hub is None:
+            raise ValueError("Missing start_hub")
+        if network.end_hub is None:
+            raise ValueError("Missing end_hub")
         return network, nb_drones
 
-    def parse_metadata(self, meta_parts: list[str]):
-        zone_type = "normal"
+    def parse_metadata(self, meta_parts: list[str]) -> tuple[str, str, int]:
         color = "none"
+        zone_type = "normal"
         max_drones = 1
+        VALID_TYPES = {"normal", "blocked", "restricted", "priority"}
 
         if not meta_parts:
             return zone_type, color, max_drones
@@ -183,13 +286,19 @@ class Parser:
         tags = meta.split()
         for tag in tags:
             key, value = tag.split("=")
+            if zone_type not in VALID_TYPES:
+              raise ValueError(f"Invalid zone type: {zone_type}")
+            if key == "max_drones":
+                if not value.isdigit():
+                    raise ValueError("Value must be an int !")
             if key == "zone":
                 zone_type = value
             elif key == "color":
                 color = value
             elif key == "max_drones":
                 max_drones = int(value)
-
+        if max_drones <= 0:
+            raise ValueError("max_drones must be > 0")
         return zone_type, color, max_drones
 
 
@@ -197,22 +306,52 @@ class Pathfinder:
     def __init__(self):
         pass
 
-    def find_path(self, start: Hub, end: Hub):
-        queue = [[start]]
-        visited = set()
+    def zone_cost(self, hub: Hub) -> int:
+        if hub.zone_type == "restricted":
+            return 2
+        if hub.zone_type == "blocked":
+            return float("inf")
+        return 1  # normal + priority
 
-        while(queue):
-            path = queue.pop(0)
-            current_hub = path[-1]
-            if current_hub == end:
-                return path
-            if current_hub in visited:
-                continue
-            visited.add(current_hub)
-            for neighbor in current_hub.get_neighbors():
+    def find_path(self, start: Hub, end: Hub) -> list[Hub]:
+        queue = [start]
+        visited = set()
+        prev: dict[Hub, Hub | None] = {start: None}
+        distance: dict[Hub, int] = {start: 0}
+
+        while queue:
+            current = min(queue, key=lambda hub: distance[hub])
+            queue.remove(current)
+
+            visited.add(current)
+            
+            if current == end:
+                break
+            
+            for connection in current.connections:
+                neighbor = connection.other_side(current)
+                if neighbor in visited:
+                    continue
                 if neighbor.zone_type == "blocked":
                     continue
-                new_path = path + [neighbor]
-                queue.append(new_path)
-            
+
+                cost = self.zone_cost(neighbor)
+                new_dist = distance[current] + cost
+                
+                if new_dist < distance.get(neighbor, float("inf")):
+                    distance[neighbor] = new_dist
+                    prev[neighbor] = current
+                    queue.append(neighbor)
+
+        if end not in prev:
+            return []
+
+        path = []
+        node = end
+
+        while node is not None:
+            path.append(node)
+            node = prev[node]
+
+        path.reverse()
         return path

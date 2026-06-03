@@ -1,28 +1,92 @@
-from models import StartHub, Pathfinder
+from models import (
+    Parser,
+    Pathfinder,
+    Drone,
+    Simulation
+)
 
-    
-def params(data):
-    nb_drones = "nb_drones: x"
-    start_hub = StartHub("start", 0, 0, max_drones, zone_type, color)
-        
 
 def main():
-    parser = Parser("maps/easy/02_simple_fork.txt")
+    # Parse map
+    parser = Parser("maps/medium/02_circular_loop.txt")
     network, nb_drones = parser.parse()
-    start_hub = network.start_hub
-    end_hub = network.end_hub
-    path_finder = Pathfinder()
-    pathin = path_finder.find_path(start=start_hub, end=end_hub)
-    for path in pathin:
-        print(path.name)
-    print(f"Start {start_hub.name}")
-    print(f"End {end_hub.connections[0].hub1.name}")
-    print(f"network {network}")
-    for i in  range(len(network.connections)):
-        print(f"Connection {i} = ")
-        print(f"network {network.connections[i].hub1.name} à {network.connections[i].hub2.name}")
-    print(f"network {network.hubs['goal'].x}")
-    print(f"nb drones {nb_drones}")
+
+    print("=== MAP INFO ===")
+    print(f"Start hub : {network.start_hub.name}")
+    print(f"End hub   : {network.end_hub.name}")
+    print(f"Nb drones : {nb_drones}")
+    print()
+
+    print("=== HUBS ===")
+    for hub in network.hubs.values():
+        print(
+            f"{hub.name} "
+            f"(zone={hub.zone_type}, "
+            f"capacity={hub.max_drones})"
+        )
+
+    print()
+
+    print("=== CONNECTIONS ===")
+    for connection in network.connections:
+        print(
+            f"{connection.hub1.name}"
+            f" <-> "
+            f"{connection.hub2.name}"
+        )
+
+    print()
+
+    # Pathfinder test
+    pathfinder = Pathfinder()
+
+    path = pathfinder.find_path(
+        network.start_hub,
+        network.end_hub
+    )
+
+    print("=== PATH FOUND ===")
+
+    if path:
+        print(
+            " -> ".join(
+                hub.name for hub in path
+            )
+        )
+
+    print()
+
+    # Create drones
+    drones = []
+
+    for drone_id in range(1, nb_drones + 1):
+        drones.append(
+            Drone(
+                drone_id,
+                network.start_hub
+            )
+        )
+
+    print("=== DRONES ===")
+
+    for drone in drones:
+        print(
+            f"D{drone.id} at "
+            f"{drone.current_hub.name}"
+        )
+
+    print()
+
+    # Simulation test
+    simulation = Simulation(
+        network,
+        drones,
+        pathfinder
+    )
+
+    print("=== SIMULATION ===")
+    simulation.run(pathfinder)
+
 
 if __name__ == "__main__":
     main()
