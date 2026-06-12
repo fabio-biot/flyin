@@ -1,7 +1,5 @@
-# class ReadError(Exception):
-#     def __init__(self, message: str):
-#         self.message = message
-#         super().__init__(message)
+class ParserError(Exception):
+    pass
 
 class Hub():
     def __init__(self, name, x, y, zone_type="normal", color="none", max_drones=1):
@@ -29,40 +27,59 @@ class Simulation:
         self.turn = 0
 
     def init_paths(self):
+        self.assign_paths()
         for drone in self.drones:
-            drone.path = self.pathfinder.find_path(
-                self.network.start_hub,
-                self.network.end_hub
-            )
             drone.next_index = 0
 
     def run(self, pathfinder):
         self.init_paths()
-
         while not self.all_delivered():
+            for d in self.drones:
+                d.reset_if_invalid()
             self.turn += 1
             moves = self.compute_turn()
             self.apply_moves(moves)
             self.print_turn(moves)
+        print("ALL DRONES DELIVERED =", self.all_delivered())
 
     def all_delivered(self):
         return all(d.delivered for d in self.drones)
     
-    def compute_turn(self):
+    def compute_turn(self, pathfinder=None):
         moves = []
-
         occupancy = self.get_occupancy()
+        connections = self.network.connections
 
         for drone in self.drones:
-
             if drone.delivered:
+                continue
+
+            if drone.remaining_turns > 0:
+                drone.remaining_turns -= 1
+                if drone.remaining_turns == 0:
+                    dst = drone.destination
+                    drone.current_hub = dst
+                    drone.destination = None
+                    drone.current_connection = None
+                    drone.next_index += 1
+
+                    if dst == self.network.end_hub:
+                        drone.delivered = True
                 continue
 
             path = drone.path
             i = drone.next_index
 
-            if i + 1 >= len(path):
+            if drone.current_hub == self.network.end_hub:
                 drone.delivered = True
+                continue
+
+            if i >= len(path) - 1:
+                if drone.current_hub == self.network.end_hub:
+                    drone.delivered = True
+                else:
+                    drone.delivered = True
+                    drone.current_hub = self.network.end_hub
                 continue
 
             current = path[i]
@@ -70,26 +87,60 @@ class Simulation:
 
             current_count = occupancy.get(next_hub, 0)
 
-            if (
-                next_hub != self.network.end_hub
-                and current_count >= next_hub.max_drones
-            ):
+            if next_hub != self.network.end_hub and current_count >= next_hub.max_drones:
+                continue
+
+            current_connection = None
+            for c in connections:
+                if (c.hub1 == current and c.hub2 == next_hub) or (c.hub2 == current and c.hub1 == next_hub):
+                    current_connection = c
+                    break
+
+            if current_connection is None:
+                continue
+
+            if current_connection.nb_transit_turn >= current_connection.max_capacity:
+                continue
+
+            if next_hub.zone_type == "restricted":
+                drone.remaining_turns = 1
+                drone.destination = next_hub
+                drone.current_connection = current_connection
+                current_connection.nb_transit_turn += 1
+                occupancy[current] = occupancy.get(current, 0) - 1
+                moves.append((drone, current, next_hub))
                 continue
 
             moves.append((drone, current, next_hub))
+            current_connection.nb_transit_turn += 1
 
-            occupancy[current] = occupancy.get(current, 0) - 1
-            occupancy[next_hub] = occupancy.get(next_hub, 0) + 1
+        for c in connections:
+            c.nb_transit_turn = 0
 
         return moves
         
+
     def apply_moves(self, moves):
         for drone, src, dst in moves:
-            drone.next_index += 1
-            drone.current_hub = dst
 
-            if dst == self.network.end_hub:
+            if drone.delivered:
+                continue
+            if isinstance(dst, str):
+                continue
+            drone.current_hub = dst
+            if drone.path:
+                try:
+                    idx = drone.path.index(dst)
+                    drone.next_index = idx
+                except ValueError:
+                    pass
+            if drone.current_hub == self.network.end_hub:
                 drone.delivered = True
+                drone.next_index = len(drone.path) - 1
+
+            drone.remaining_turns = 0
+            drone.destination = None
+            drone.current_connection = None
     
     def print_turn(self, moves):
         if not moves:
@@ -111,12 +162,50 @@ class Simulation:
             hub = drone.current_hub
             occupancy[hub] = occupancy.get(hub, 0) + 1
         return occupancy
+    
+    def assign_paths(self):
+        all_paths = self.pathfinder.find_all_paths_with_cost(
+            self.network.start_hub,
+            self.network.end_hub
+        )
+        path_infos = []
+
+        for path, cost in all_paths:
+            bottleneck = min(
+                (h.max_drones for h in path[1:-1]),
+                default=1
+            )
+
+            path_infos.append({
+                "path": path,
+                "cost": cost,
+                "load": 0,
+                "bottleneck": bottleneck,
+            })
+
+        for drone in self.drones:
+            best = None
+            best_score = float("inf")
+
+            for info in path_infos:
+                load_after = info["load"] + 1
+                delay = load_after // info["bottleneck"]
+                score = info["cost"] + delay
+
+                if score < best_score:
+                    best_score = score
+                    best = info
+
+            drone.path = best["path"]
+            best["load"] += 1
+            drone.next_index = 0
 
 
 class Connection:
-    def __init__(self, hub1: Hub, hub2: Hub, max_capacity: int = 1):
+    def __init__(self, hub1: Hub, hub2: Hub, max_capacity: int):
         self.hub1: Hub = hub1
         self.hub2: Hub = hub2
+        self.nb_transit_turn: int = 0
         self.max_capacity: int = max_capacity
         self.drones_in_transit: list["Drone"] = []
 
@@ -132,9 +221,14 @@ class Drone:
         self.current_hub: Hub = start_hub
         self.path: list[Hub] = []
         self.remaining_turns: int = 0
+        self.restricted_lock: bool = False
         self.current_connection: Connection = None
         self.next_index = 0
         self.delivered = False
+    
+    def reset_if_invalid(self):
+        if self.path and self.next_index >= len(self.path):
+            self.next_index = len(self.path) - 1
 
 
 class Move:
@@ -200,8 +294,8 @@ class Parser:
         try:
             with open(self.path, "r") as file:
                 lines = file.readlines()
-        except FileNotFoundError as e:
-            raise FileNotFoundError(f"Error while reading {self.path}: {e}")
+        except FileNotFoundError:
+            raise ParserError(f"Error while reading {self.path}")
 
         for line in lines:
             line = line.strip()
@@ -249,7 +343,7 @@ class Parser:
                     raise ValueError(f"Unknown hub '{node2}'")
                 hub1 = network.hubs[node1]
                 hub2 = network.hubs[node2]
-                max_link_capacity = 1
+                max_link_capacity = nb_drones
                 if len(parts) > 2:
                     meta = " ".join(parts[2:]).strip("[]")
                     for tag in meta.split():
@@ -286,8 +380,6 @@ class Parser:
         tags = meta.split()
         for tag in tags:
             key, value = tag.split("=")
-            if zone_type not in VALID_TYPES:
-              raise ValueError(f"Invalid zone type: {zone_type}")
             if key == "max_drones":
                 if not value.isdigit():
                     raise ValueError("Value must be an int !")
@@ -299,6 +391,8 @@ class Parser:
                 max_drones = int(value)
         if max_drones <= 0:
             raise ValueError("max_drones must be > 0")
+        if zone_type not in VALID_TYPES:
+              raise ValueError(f"Invalid zone type: {zone_type}")
         return zone_type, color, max_drones
 
 
@@ -309,6 +403,8 @@ class Pathfinder:
     def zone_cost(self, hub: Hub) -> int:
         if hub.zone_type == "restricted":
             return 2
+        if hub.zone_type == "priority":
+            return 0.9
         if hub.zone_type == "blocked":
             return float("inf")
         return 1  # normal + priority
@@ -319,15 +415,16 @@ class Pathfinder:
         prev: dict[Hub, Hub | None] = {start: None}
         distance: dict[Hub, int] = {start: 0}
 
+
         while queue:
             current = min(queue, key=lambda hub: distance[hub])
             queue.remove(current)
 
             visited.add(current)
-            
+
             if current == end:
                 break
-            
+
             for connection in current.connections:
                 neighbor = connection.other_side(current)
                 if neighbor in visited:
@@ -355,3 +452,35 @@ class Pathfinder:
 
         path.reverse()
         return path
+
+
+    def find_all_paths_with_cost(self, start: Hub, end: Hub) -> list[tuple[list[Hub], int]] :
+        queue = [[start]]
+        all_paths = []
+
+        while queue:
+            path = queue.pop(0)
+            current = path[-1]
+
+            if current == end:
+                cost = sum(self.zone_cost(h) for h in path[1:])
+                all_paths.append((path, cost))
+                continue
+
+            for connection in current.connections:
+                neighbor = connection.other_side(current)
+
+                if neighbor.zone_type == "blocked":
+                    continue
+
+                if neighbor in path:
+                    continue
+
+                new_path = path + [neighbor]
+                queue.append(new_path)
+
+        all_paths.sort(key=lambda x: x[1])
+
+        # for u, c in all_paths:
+        #     print(f"Cost: {c} - Path: {' -> '.join(h.name for h in u)}")
+        return all_paths
