@@ -3,7 +3,7 @@ class ParserError(Exception):
 
 class Hub():
     def __init__(self, name, x, y, zone_type="normal", color="none", max_drones=1):
-        self.name = name
+        self.name: str = name
         self.x: int = x
         self.y: int = y
         self.zone_type: str = zone_type
@@ -18,13 +18,12 @@ class Hub():
             neighbors.append(connection.other_side(self))
         return neighbors
 
-
 class Simulation:
     def __init__(self, network, drones, pathfinder):
-        self.network = network
-        self.drones = drones
-        self.pathfinder = pathfinder
-        self.turn = 0
+        self.network: Network = network
+        self.drones: Drone = drones
+        self.pathfinder: Pathfinder = pathfinder
+        self.turn: int = 0
 
     def init_paths(self):
         self.assign_paths()
@@ -34,125 +33,151 @@ class Simulation:
     def run(self, pathfinder):
         self.init_paths()
         while not self.all_delivered():
-            for d in self.drones:
-                d.reset_if_invalid()
             self.turn += 1
-            moves = self.compute_turn()
+            self.resolve_transits()
+            moves = self.compute_turn(self.turn)
             self.apply_moves(moves)
             self.print_turn(moves)
         print("ALL DRONES DELIVERED =", self.all_delivered())
 
     def all_delivered(self):
         return all(d.delivered for d in self.drones)
-    
-    def compute_turn(self, pathfinder=None):
+
+    def process_transit(self, drone, moves):
+        drone.remaining_turns = 0
+        drone.current_hub = drone.target_hub
+        drone.target_hub = None
+        drone.current_connection = None
+        drone.in_transit = False
+        moves.append((drone, drone.current_connection, drone.current_hub, 'a'))
+        return
+
+    def compute_turn(self, turn: int):
         moves = []
+        used_connections: dict[Connection, int] = {}
         occupancy = self.get_occupancy()
-        connections = self.network.connections
 
-        for drone in self.drones:
+        print(turn)
+        
+        for drone in self.drones:   
             if drone.delivered:
+                print("siud")
                 continue
-
-            if drone.remaining_turns > 0:
-                drone.remaining_turns -= 1
-                if drone.remaining_turns == 0:
-                    dst = drone.destination
-                    drone.current_hub = dst
-                    drone.destination = None
-                    drone.current_connection = None
-                    drone.next_index += 1
-
-                    if dst == self.network.end_hub:
-                        drone.delivered = True
+            if drone.in_transit:
+                # print("drone.id")
+                # print(drone.id)
+                # print(f"drone.in_transit {drone.in_transit}")
+                # print(f"drone.target hub {drone.target_hub.name}")
+                # print(f"drone connection {drone.current_connection.hub1.name}-{drone.current_connection.hub2.name}")
+                self.process_transit(drone, moves)
                 continue
-
+            if drone.in_transit:
+                moves.append((drone, drone.current_connection, next_hub, 'a'))
+                continue
+            
+            print(f"drone remaining turn {drone.remaining_turns}")
+        
             path = drone.path
             i = drone.next_index
-
-            if drone.current_hub == self.network.end_hub:
-                drone.delivered = True
-                continue
-
             if i >= len(path) - 1:
-                if drone.current_hub == self.network.end_hub:
-                    drone.delivered = True
-                else:
-                    drone.delivered = True
-                    drone.current_hub = self.network.end_hub
                 continue
 
             current = path[i]
             next_hub = path[i + 1]
 
-            current_count = occupancy.get(next_hub, 0)
+            print(f"drone = {drone.id}")
+            for i in range(len(path)):
+                print(f"path = {path[i].name}")
+            print(f"current = {current.name} et next = {next_hub.name}")
+            # print(f"current_count = {current_count} et max = {next_hub.max_drones}")
+            if next_hub != self.network.end_hub:
+                if occupancy.get(next_hub, 0) >= next_hub.max_drones:
+                    continue
 
-            if next_hub != self.network.end_hub and current_count >= next_hub.max_drones:
-                continue
-
-            current_connection = None
-            for c in connections:
-                if (c.hub1 == current and c.hub2 == next_hub) or (c.hub2 == current and c.hub1 == next_hub):
-                    current_connection = c
+            connection = None
+            for c in self.network.connections:
+                if c.other_side(current) == next_hub:
+                    connection = c
                     break
-
-            if current_connection is None:
+                
+            if connection is None:
                 continue
 
-            if current_connection.nb_transit_turn >= current_connection.max_capacity:
+            used_connections.setdefault(connection, 0)
+            if used_connections[connection] >= connection.max_capacity:
                 continue
-
+            used_connections[connection] += 1
+            
             if next_hub.zone_type == "restricted":
-                drone.remaining_turns = 1
-                drone.destination = next_hub
-                drone.current_connection = current_connection
-                current_connection.nb_transit_turn += 1
-                occupancy[current] = occupancy.get(current, 0) - 1
-                moves.append((drone, current, next_hub))
+                drone.in_transit = True
+                drone.remaining_turns = 2
+                drone.target_hub = next_hub
+                drone.current_connection = connection
+                print("Je suis restricted apres")
+                moves.append((drone, current, connection, 'b'))
                 continue
+            
+            # print(f"occupancy of {current.name} = {occupancy[current]}")
+            moves.append((drone, current, next_hub, 'a'))
+               # print("NEXT ZONE RESTRICTED")
 
-            moves.append((drone, current, next_hub))
-            current_connection.nb_transit_turn += 1
-
-        for c in connections:
-            c.nb_transit_turn = 0
+            # print(f"{current_connection.hub1.name} <-> {current_connection.hub2.name} nb_transit_turn =")
+            # print(f"{current_connection.nb_transit_turn}")
+            occupancy[current] = occupancy.get(current, 0) - 1
+            occupancy[next_hub] = occupancy.get(next_hub, 0) + 1
+            # print(f"{drone.id} -> {drone.current_hub.name}")
+        # for d in self.drones:
+        #     print(f"D{d.id} at {d.current_hub.name} (delivered={d.delivered})")
 
         return moves
-        
 
     def apply_moves(self, moves):
-        for drone, src, dst in moves:
-
+        for drone, src, dst, mode in moves:
             if drone.delivered:
                 continue
-            if isinstance(dst, str):
-                continue
-            drone.current_hub = dst
-            if drone.path:
-                try:
-                    idx = drone.path.index(dst)
-                    drone.next_index = idx
-                except ValueError:
-                    pass
-            if drone.current_hub == self.network.end_hub:
-                drone.delivered = True
-                drone.next_index = len(drone.path) - 1
+            if mode == "a":
+                if isinstance(dst, str):
+                    continue
+                drone.current_hub = dst
+                # progression normale
+                if not drone.in_transit:
+                    drone.next_index += 1
 
-            drone.remaining_turns = 0
-            drone.destination = None
-            drone.current_connection = None
-    
+                if drone.current_hub == self.network.end_hub:
+                    drone.delivered = True
+                    drone.next_index = len(drone.path) - 1
+                drone.remaining_turns = 0
+                drone.target_hub = None
+                drone.current_connection = None
+                drone.in_transit = False
+
+            elif mode == "b":
+                if not isinstance(dst, Connection):
+                    continue
+                drone.in_transit = True
+                drone.remaining_turns = 2
+                drone.current_connection = dst
+                drone.current_hub = None
+                drone.target_hub = dst.other_side(src)
+                print(f"drone.target_hub == {drone.current_hub}")
+                print(f"drone.connectiom_hub == {drone.current_connection.hub1.name}-{drone.current_connection.hub2.name}")
+            else:
+                raise ValueError(f"Unknown mode: {mode}")
+            
     def print_turn(self, moves):
         if not moves:
             print()
             return
 
         line = []
-        for drone, src, dst in moves:
-            line.append(f"D{drone.id}-{dst.name}")
+        for drone, src, dst, mode in moves:
+            if mode == "b":
+                line.append(f"D{drone.id}-{dst.hub1.name}-{dst.hub2.name}")
+            else:
+                line.append(f"D{drone.id}-{dst.name}")
 
         print(" ".join(line))
-    
+
     def get_occupancy(self) -> dict[Hub, int]:
         occupancy = {}
 
@@ -162,7 +187,31 @@ class Simulation:
             hub = drone.current_hub
             occupancy[hub] = occupancy.get(hub, 0) + 1
         return occupancy
-    
+
+            
+    def resolve_transits(self):
+        for drone in self.drones:
+            if not drone.in_transit:
+                continue
+
+            drone.remaining_turns -= 1
+
+            if drone.remaining_turns == 0:
+                drone.current_hub = drone.target_hub
+                drone.target_hub = None
+                drone.current_connection = None
+                drone.connection = None
+                drone.in_transit = False
+                drone.next_index += 1
+            if drone.current_hub == self.network.end_hub:
+                drone.delivered = True
+
+                print('ftu')
+                continue
+
+            if drone.current_hub == self.network.end_hub:
+                drone.delivered = True
+
     def assign_paths(self):
         all_paths = self.pathfinder.find_all_paths_with_cost(
             self.network.start_hub,
@@ -200,44 +249,38 @@ class Simulation:
             best["load"] += 1
             drone.next_index = 0
 
-
 class Connection:
-    def __init__(self, hub1: Hub, hub2: Hub, max_capacity: int):
+    def __init__(self, hub1: "Hub", hub2: "Hub", max_capacity: int = 1):
         self.hub1: Hub = hub1
         self.hub2: Hub = hub2
-        self.nb_transit_turn: int = 0
         self.max_capacity: int = max_capacity
-        self.drones_in_transit: list["Drone"] = []
 
-    def other_side(self, current: Hub) -> Hub:
-        if current == self.hub1:
-            return self.hub2
-        return self.hub1
+    def other_side(self, hub: "Hub") -> "Hub":
+        return self.hub2 if hub == self.hub1 else self.hub1
 
+    def is_between(self, a: "Hub", b: "Hub") -> bool:
+        return (self.hub1 == a and self.hub2 == b) or (self.hub1 == b and self.hub2 == a)
 
 class Drone:
     def __init__(self, drone_id: int, start_hub: Hub):
         self.id: int = drone_id
         self.current_hub: Hub = start_hub
-        self.path: list[Hub] = []
-        self.remaining_turns: int = 0
-        self.restricted_lock: bool = False
-        self.current_connection: Connection = None
-        self.next_index = 0
-        self.delivered = False
-    
-    def reset_if_invalid(self):
-        if self.path and self.next_index >= len(self.path):
-            self.next_index = len(self.path) - 1
+        self.path = []
+        self.next_index: int = 0
+        self.delivered: bool = False
 
+        # if drone in trsit -> Restricted
+        self.in_transit: bool = False
+        self.remaining_turns: int = 0
+        self.target_hub: bool = None
+        self.connection: bool = None
 
 class Move:
     def __init__(self, drone, source, destination, connection):
         self.drone: Drone = drone
-        self.source: Hub = source
-        self.destination: Hub = destination
+        self.source: Hub | Connection = source
+        self.destination: Hub | Connection = destination
         self.connection: Connection = connection
-
 
 class Network:
     def __init__(self):
@@ -245,7 +288,6 @@ class Network:
         self.hubs: dict[str, Hub] = {}
         self.start_hub: StartHub = None
         self.end_hub: EndHub = None
-
 
 class StartHub(Hub):
     def __init__(
@@ -268,7 +310,6 @@ class StartHub(Hub):
         )
         self.nb_drones_sim = nb_drones_sim
 
-
 class EndHub(Hub):
     def __init__(
         self, name, x, y,
@@ -280,7 +321,6 @@ class EndHub(Hub):
             zone_type,
             color, max_drones
         )
-
 
 class Parser:
     def __init__(self, path):
@@ -395,7 +435,6 @@ class Parser:
               raise ValueError(f"Invalid zone type: {zone_type}")
         return zone_type, color, max_drones
 
-
 class Pathfinder:
     def __init__(self):
         pass
@@ -409,50 +448,48 @@ class Pathfinder:
             return float("inf")
         return 1  # normal + priority
 
-    def find_path(self, start: Hub, end: Hub) -> list[Hub]:
-        queue = [start]
-        visited = set()
-        prev: dict[Hub, Hub | None] = {start: None}
-        distance: dict[Hub, int] = {start: 0}
+    # def find_path(self, start: Hub, end: Hub) -> list[Hub]:
+    #     queue = [start]
+    #     visited = set()
+    #     prev: dict[Hub, Hub | None] = {start: None}
+    #     distance: dict[Hub, int] = {start: 0}
 
+    #     while queue:
+    #         current = min(queue, key=lambda hub: distance[hub])
+    #         queue.remove(current)
 
-        while queue:
-            current = min(queue, key=lambda hub: distance[hub])
-            queue.remove(current)
+    #         visited.add(current)
 
-            visited.add(current)
+    #         if current == end:
+    #             break
 
-            if current == end:
-                break
+    #         for connection in current.connections:
+    #             neighbor = connection.other_side(current)
+    #             if neighbor in visited:
+    #                 continue
+    #             if neighbor.zone_type == "blocked":
+    #                 continue
 
-            for connection in current.connections:
-                neighbor = connection.other_side(current)
-                if neighbor in visited:
-                    continue
-                if neighbor.zone_type == "blocked":
-                    continue
-
-                cost = self.zone_cost(neighbor)
-                new_dist = distance[current] + cost
+    #             cost = self.zone_cost(neighbor)
+    #             new_dist = distance[current] + cost
                 
-                if new_dist < distance.get(neighbor, float("inf")):
-                    distance[neighbor] = new_dist
-                    prev[neighbor] = current
-                    queue.append(neighbor)
+    #             if new_dist < distance.get(neighbor, float("inf")):
+    #                 distance[neighbor] = new_dist
+    #                 prev[neighbor] = current
+    #                 queue.append(neighbor)
 
-        if end not in prev:
-            return []
+    #     if end not in prev:
+    #         return []
 
-        path = []
-        node = end
+    #     path = []
+    #     node = end
 
-        while node is not None:
-            path.append(node)
-            node = prev[node]
+    #     while node is not None:
+    #         path.append(node)
+    #         node = prev[node]
 
-        path.reverse()
-        return path
-
+    #     path.reverse()
+    #     return path
 
     def find_all_paths_with_cost(self, start: Hub, end: Hub) -> list[tuple[list[Hub], int]] :
         queue = [[start]]

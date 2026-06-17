@@ -10,6 +10,7 @@ from models import (
 def main():
     # Parse map
     file = "maps/easy/01.txt"
+    file2 = "maps/medium/03_priority_puzzle.txt"
     try:
         parser = Parser(file)
         network, nb_drones = parser.parse()
