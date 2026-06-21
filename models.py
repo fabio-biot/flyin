@@ -21,7 +21,7 @@ class Hub():
 class Simulation:
     def __init__(self, network, drones, pathfinder):
         self.network: Network = network
-        self.drones: Drone = drones
+        self.drones: list[Drone] = drones
         self.pathfinder: Pathfinder = pathfinder
         self.turn: int = 0
 
@@ -52,16 +52,16 @@ class Simulation:
         moves.append((drone, drone.current_connection, drone.current_hub, 'a'))
         return
 
-    def compute_turn(self, turn: int):
+    def compute_turn(self):
         moves = []
         used_connections: dict[Connection, int] = {}
         occupancy = self.get_occupancy()
 
-        print(turn)
+        # print(turn)
         
         for drone in self.drones:   
             if drone.delivered:
-                print("siud")
+                # print("siud")
                 continue
             if drone.in_transit:
                 # print("drone.id")
@@ -75,7 +75,7 @@ class Simulation:
                 moves.append((drone, drone.current_connection, next_hub, 'a'))
                 continue
             
-            print(f"drone remaining turn {drone.remaining_turns}")
+            # print(f"drone remaining turn {drone.remaining_turns}")
         
             path = drone.path
             i = drone.next_index
@@ -85,10 +85,10 @@ class Simulation:
             current = path[i]
             next_hub = path[i + 1]
 
-            print(f"drone = {drone.id}")
-            for i in range(len(path)):
-                print(f"path = {path[i].name}")
-            print(f"current = {current.name} et next = {next_hub.name}")
+            # print(f"drone = {drone.id}")
+            # for i in range(len(path)):
+                # print(f"path = {path[i].name}")
+            # print(f"current = {current.name} et next = {next_hub.name}")
             # print(f"current_count = {current_count} et max = {next_hub.max_drones}")
             if next_hub != self.network.end_hub:
                 if occupancy.get(next_hub, 0) >= next_hub.max_drones:
@@ -113,7 +113,7 @@ class Simulation:
                 drone.remaining_turns = 2
                 drone.target_hub = next_hub
                 drone.current_connection = connection
-                print("Je suis restricted apres")
+                # print("Je suis restricted apres")
                 moves.append((drone, current, connection, 'b'))
                 continue
             
@@ -128,7 +128,6 @@ class Simulation:
             # print(f"{drone.id} -> {drone.current_hub.name}")
         # for d in self.drones:
         #     print(f"D{d.id} at {d.current_hub.name} (delivered={d.delivered})")
-
         return moves
 
     def apply_moves(self, moves):
@@ -159,8 +158,8 @@ class Simulation:
                 drone.current_connection = dst
                 drone.current_hub = None
                 drone.target_hub = dst.other_side(src)
-                print(f"drone.target_hub == {drone.current_hub}")
-                print(f"drone.connectiom_hub == {drone.current_connection.hub1.name}-{drone.current_connection.hub2.name}")
+                # print(f"drone.target_hub == {drone.current_hub}")
+                # print(f"drone.connectiom_hub == {drone.current_connection.hub1.name}-{drone.current_connection.hub2.name}")
             else:
                 raise ValueError(f"Unknown mode: {mode}")
             
@@ -245,9 +244,13 @@ class Simulation:
                     best_score = score
                     best = info
 
-            drone.path = best["path"]
+            try:
+                drone.path = best["path"]
+            except TypeError as e:
+                raise TypeError(f"Error, no path found: {e}")
             best["load"] += 1
             drone.next_index = 0
+
 
 class Connection:
     def __init__(self, hub1: "Hub", hub2: "Hub", max_capacity: int = 1):
@@ -342,13 +345,17 @@ class Parser:
             if not line or line.startswith("#"):
                 continue
             if line.startswith("nb_drones:"):
-                nb_drones = int(line.split(":")[1].strip())
+                try:
+                    nb_drones = int(line.split(":")[1].strip())
+                except ValueError as e:
+                    raise ValueError(f"nb_drones should be an int {e}")
+                
             elif line.startswith("start_hub:"):
                 parts = line.split()
                 name = parts[1]
                 x = int(parts[2])
                 y = int(parts[3])
-                zone_type, color, max_drones = self.parse_metadata(parts[4:])
+                zone_type, color, max_drones = self.parse_metadata(parts[4:], nb_drones)
                 hub = StartHub(name, x, y, nb_drones, zone_type, color, max_drones)
                 network.hubs[name] = hub
                 network.start_hub = hub
@@ -358,7 +365,7 @@ class Parser:
                 name = parts[1]
                 x = int(parts[2])
                 y = int(parts[3])
-                zone_type, color, max_drones = self.parse_metadata(parts[4:])
+                zone_type, color, max_drones = self.parse_metadata(parts[4:], nb_drones)
                 hub = EndHub(name, x, y, zone_type, color, max_drones)
                 network.hubs[name] = hub
                 network.end_hub = hub
@@ -368,7 +375,7 @@ class Parser:
                 name = parts[1]
                 x = int(parts[2])
                 y = int(parts[3])
-                zone_type, color, max_drones = self.parse_metadata(parts[4:])
+                zone_type, color, max_drones = self.parse_metadata(parts[4:], nb_drones)
                 hub = Hub(name, x, y, zone_type, color, max_drones)
                 if name in network.hubs:
                     raise ValueError(f"Duplicate hub '{name}'")
@@ -408,10 +415,11 @@ class Parser:
             raise ValueError("Missing end_hub")
         return network, nb_drones
 
-    def parse_metadata(self, meta_parts: list[str]) -> tuple[str, str, int]:
+
+    def parse_metadata(self, meta_parts: list[str], nb_drones) -> tuple[str, str, int]:
         color = "none"
         zone_type = "normal"
-        max_drones = 1
+        max_drones = nb_drones
         VALID_TYPES = {"normal", "blocked", "restricted", "priority"}
 
         if not meta_parts:
@@ -431,6 +439,8 @@ class Parser:
                 max_drones = int(value)
         if max_drones <= 0:
             raise ValueError("max_drones must be > 0")
+        if max_drones == None:
+            raise ValueError("max_drones is NULL !")
         if zone_type not in VALID_TYPES:
               raise ValueError(f"Invalid zone type: {zone_type}")
         return zone_type, color, max_drones
@@ -517,6 +527,7 @@ class Pathfinder:
                 queue.append(new_path)
 
         all_paths.sort(key=lambda x: x[1])
+        
 
         # for u, c in all_paths:
         #     print(f"Cost: {c} - Path: {' -> '.join(h.name for h in u)}")
