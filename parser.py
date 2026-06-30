@@ -2,71 +2,66 @@ from models import (
     Parser,
     Pathfinder,
     Drone,
-    Simulation, 
-    ParserError
+    Simulation,
 )
+
+def get_mode():
+    # mode = "cli"
+    mode = "pygame"
+    return mode
+
+def build_simulation(network, nb_drones):
+    pathfinder = Pathfinder()
+
+    drones = [
+        Drone(i, network.start_hub)
+        for i in range(1, nb_drones + 1)
+    ]
+
+    return Simulation(network, drones, pathfinder), pathfinder
+
+
+def run_cli(simulation, pathfinder):
+    print("=== SIMULATION CLI ===")
+    try:
+        simulation.run(pathfinder)
+    except Exception as e:
+        print(e)
+
+
+def run_pygame(network, simulation):
+    from visualizer import Game
+
+    game = Game(network, simulation)
+    game.run()
 
 
 def main():
-    # Parse map
-    file = "maps/easy/01_linear_path.txt"
-    file2 = "maps/hard/03_ultimate_challenge.txt"
+    file = "maps/hard/02_capacity_hell.txt"
+
     try:
-        parser = Parser(file2)
+        parser = Parser(file)
         network, nb_drones = parser.parse()
     except Exception as e:
-        print(e)
+        print(f"Parser error: {e}")
         return
 
     print("=== MAP INFO ===")
     print(f"Start hub : {network.start_hub.name}")
     print(f"End hub   : {network.end_hub.name}")
     print(f"Nb drones : {nb_drones}")
-    print()
-    pathfinder = Pathfinder()
-    print()
-    drones = []
 
-    for drone_id in range(1, nb_drones + 1):
-        drones.append(
-            Drone(
-                drone_id,
-                network.start_hub
-            )
-        )
-
-    # print("=== DRONES ===")
-
-    # for drone in drones:
-    #     print(
-    #         f"D{drone.id} at "
-    #         f"{drone.current_hub.name}"
-    #     )
-
-    print()
-
-    # Simulation test
-    simulation = Simulation(
-        network,
-        drones,
-        pathfinder
-    )
-
-    mode = "pygame"
-
+    simulation, pathfinder = build_simulation(network, nb_drones)
+    mode = get_mode()
     if mode == "pygame":
-        from visualizer import Visualizer
-        viz = Visualizer(network, simulation)
-        viz.run()
-    
-    if mode == "cli":
-        print("=== SIMULATION ===")
-        try:
-            simulation.run(pathfinder)
-        except Exception as e:
-            print(e)
-            return
-        print(simulation.turn)
+        run_pygame(network, simulation)
+
+    elif mode == "cli":
+        run_cli(simulation, pathfinder)
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nSimulation ended")

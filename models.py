@@ -24,6 +24,7 @@ class Simulation:
         self.drones: list[Drone] = drones
         self.pathfinder: Pathfinder = pathfinder
         self.turn: int = 0
+        self.all_deliv: bool = False
 
     def init_paths(self):
         self.assign_paths()
@@ -35,7 +36,18 @@ class Simulation:
         while not self.all_delivered():
             self.turn += 1
             self.resolve_transits()
-            moves = self.compute_turn(self.turn)
+            moves = self.compute_turn()
+            self.apply_moves(moves)
+            self.print_turn(moves)
+        print("ALL DRONES DELIVERED =", self.all_delivered())
+        self.all_deliv = True
+
+    def run_pygame(self, pathfinder):
+        self.init_paths()
+        while not self.all_delivered():
+            self.turn += 1
+            self.resolve_transits()
+            moves = self.compute_turn()
             self.apply_moves(moves)
             self.print_turn(moves)
         print("ALL DRONES DELIVERED =", self.all_delivered())
@@ -134,10 +146,17 @@ class Simulation:
         for drone, src, dst, mode in moves:
             if drone.delivered:
                 continue
+            print(f"{drone.id} -> {drone.current_hub.x} - {drone.current_hub.y}")
             if mode == "a":
                 if isinstance(dst, str):
                     continue
-                drone.current_hub = dst
+                if mode == "a":
+                    drone.anim_from = src
+                    drone.anim_to = dst
+                    drone.anim_progress = 0.0
+                    drone.animating = True
+                    drone.current_hub = dst  # logique CLI OK
+
                 # progression normale
                 if not drone.in_transit:
                     drone.next_index += 1
@@ -162,6 +181,17 @@ class Simulation:
                 # print(f"drone.connectiom_hub == {drone.current_connection.hub1.name}-{drone.current_connection.hub2.name}")
             else:
                 raise ValueError(f"Unknown mode: {mode}")
+    
+    def update_animation(self, dt=0.1):
+        for drone in self.drones:
+            if not drone.animating:
+                continue
+
+            drone.anim_progress += dt
+
+            if drone.anim_progress >= 1.0:
+                drone.anim_progress = 1.0
+                drone.animating = False
             
     def print_turn(self, moves):
         if not moves:
@@ -250,6 +280,11 @@ class Simulation:
                 raise TypeError(f"Error, no path found: {e}")
             best["load"] += 1
             drone.next_index = 0
+    
+    def reset(self, drones):
+        self.drones = drones
+        self.turn = 0
+        self.init_paths()
 
 
 class Connection:
@@ -277,6 +312,11 @@ class Drone:
         self.remaining_turns: int = 0
         self.target_hub: bool = None
         self.connection: bool = None
+
+        self.anim_from = None
+        self.anim_to = None
+        self.anim_progress = 0.0
+        self.animating = False
 
 class Move:
     def __init__(self, drone, source, destination, connection):
