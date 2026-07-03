@@ -1,5 +1,6 @@
 import pygame
 from models import Drone
+from models import Hub
 
 pygame.init()
 
@@ -28,9 +29,9 @@ class Visualizer:
         self.camera = camera
         self.font = pygame.font.SysFont("Arial", 20)
 
-    def draw_hub(self, hub):
+    def draw_hub(self, hub: Hub):
         x, y = self.camera.world_to_screen(hub.x, hub.y)
-        pygame.draw.circle(screen, (0, 255, 0), (x, y), 15)
+        pygame.draw.circle(screen, hub.get_rvb_color(), (x, y), 15)
 
     def draw_connections(self):
         for c in self.network.connections:

@@ -17,6 +17,22 @@ class Hub():
         for connection in self.connections:
             neighbors.append(connection.other_side(self))
         return neighbors
+    
+    def get_rvb_color(self) -> tuple[int, int, int]:
+        if self.color == "red":
+            return (255, 0, 0)
+        elif self.color == "green":
+            return (0, 255, 0)
+        elif self.color == "blue":
+            return (0, 0, 255)
+        elif self.color == "yellow":
+            return (255, 255, 0)
+        elif self.color == "cyan":
+            return (0, 255, 255)
+        elif self.color == "magenta":
+            return (255, 0, 255)
+        else:
+            return (200, 200, 200)
 
 class Simulation:
     def __init__(self, network, drones, pathfinder):
