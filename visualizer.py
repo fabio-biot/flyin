@@ -28,9 +28,24 @@ class Visualizer:
         self.camera = camera
         self.font = pygame.font.SysFont("Arial", 20)
 
+    def color_to_rgb(self, color_name, default=(0, 0, 255)):
+        palette = {
+            "none": default,
+            "green": (0, 255, 0),
+            "red": (255, 0, 0),
+            "blue": (0, 0, 255),
+            "yellow": (255, 255, 0),
+            "orange": (255, 165, 0),
+            "cyan": (0, 255, 255),
+            "white": (255, 255, 255),
+            "black": (0, 0, 0),
+        }
+        return palette.get(color_name, default)
+
     def draw_hub(self, hub):
         x, y = self.camera.world_to_screen(hub.x, hub.y)
-        pygame.draw.circle(screen, (0, 255, 0), (x, y), 15)
+        color = self.color_to_rgb(getattr(hub, "color", "none"), default=(0, 255, 0))
+        pygame.draw.circle(screen, color, (x, y), 15)
 
     def draw_connections(self):
         for c in self.network.connections:
@@ -39,33 +54,53 @@ class Visualizer:
             pygame.draw.line(screen, (180, 180, 180), (x1, y1), (x2, y2), 2)
 
     def draw_drone(self, drone):
+        x = 0
+        y = 0
 
-        if drone.in_transit:
+        if drone.in_transit and getattr(drone, "current_connection", None) is not None:
             h1 = drone.current_connection.hub1
             h2 = drone.current_connection.hub2
-
             t = getattr(drone, "progress", 0)
-
             x = h1.x + (h2.x - h1.x) * t
             y = h1.y + (h2.y - h1.y) * t
+        elif getattr(drone, "animating", False):
+            h1 = getattr(drone, "anim_from", None)
+            h2 = getattr(drone, "anim_to", None)
+            if h1 is not None and h2 is not None:
+                t = getattr(drone, "anim_progress", 0.0)
+                x = h1.x + (h2.x - h1.x) * t
+                y = h1.y + (h2.y - h1.y) * t
+            else:
+                current_hub = getattr(drone, "current_hub", None)
+                if current_hub is not None:
+                    x = current_hub.x
+                    y = current_hub.y
         else:
-            x = drone.current_hub.x
-            y = drone.current_hub.y
+            current_hub = getattr(drone, "current_hub", None)
+            if current_hub is not None:
+                x = current_hub.x
+                y = current_hub.y
+            else:
+                target_hub = getattr(drone, "target_hub", None)
+                if target_hub is not None:
+                    x = target_hub.x
+                    y = target_hub.y
 
-        if drone.animating:
-            h1 = drone.anim_from
-            h2 = drone.anim_to
+        color_hub = None
+        if getattr(drone, "current_hub", None) is not None:
+            color_hub = drone.current_hub
+        elif getattr(drone, "target_hub", None) is not None:
+            color_hub = drone.target_hub
+        elif getattr(drone, "anim_to", None) is not None:
+            color_hub = drone.anim_to
 
-            t = drone.anim_progress
-
-            x = h1.x + (h2.x - h1.x) * t
-            y = h1.y + (h2.y - h1.y) * t
-        else:
-            x = drone.current_hub.x
-            y = drone.current_hub.y
+        color = self.color_to_rgb(
+            getattr(color_hub, "color", "none"),
+            default=(0, 0, 255),
+        )
 
         sx, sy = self.camera.world_to_screen(x, y)
-        pygame.draw.circle(screen, (0, 0, 255), (sx, sy), 8)
+        pygame.draw.circle(screen, color, (sx, sy), 8)
 
     def draw_debug(self, game):
         lines = [
@@ -101,11 +136,6 @@ class Game:
         self.auto_play = False
         self.step_requested = False
 
-    # def step_back(self):
-    #     if self.history:
-    #         self.sim = self.history.pop()
-    #         self.turn -= 1
-
     def update_animation(self, dt=0.1):
         for drone in self.sim.drones:
             if not getattr(drone, "animating", False):
@@ -116,7 +146,7 @@ class Game:
             if drone.anim_progress >= 1.0:
                 drone.anim_progress = 1.0
                 drone.animating = False
-    
+
     def reset(self):
 
         drones = [
@@ -128,7 +158,7 @@ class Game:
         self.turn = 0
         self.step_requested = False
         self.auto_play = False
-        
+
     def run(self):
         self.sim.init_paths()
         running = True

@@ -1,3 +1,4 @@
+import argparse
 from models import (
     Parser,
     Pathfinder,
@@ -5,10 +6,12 @@ from models import (
     Simulation,
 )
 
+
 def get_mode():
     # mode = "cli"
     mode = "pygame"
     return mode
+
 
 def build_simulation(network, nb_drones):
     pathfinder = Pathfinder()
@@ -37,8 +40,12 @@ def run_pygame(network, simulation):
 
 
 def main():
-    file = "maps/hard/02_capacity_hell.txt"
+    # file = "maps/hard/02_capacity_hell.txt"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("map")
+    args = parser.parse_args()
 
+    file = args.map
     try:
         parser = Parser(file)
         network, nb_drones = parser.parse()
