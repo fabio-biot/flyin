@@ -86,21 +86,8 @@ class Visualizer:
                     x = target_hub.x
                     y = target_hub.y
 
-        color_hub = None
-        if getattr(drone, "current_hub", None) is not None:
-            color_hub = drone.current_hub
-        elif getattr(drone, "target_hub", None) is not None:
-            color_hub = drone.target_hub
-        elif getattr(drone, "anim_to", None) is not None:
-            color_hub = drone.anim_to
-
-        color = self.color_to_rgb(
-            getattr(color_hub, "color", "none"),
-            default=(0, 0, 255),
-        )
-
         sx, sy = self.camera.world_to_screen(x, y)
-        pygame.draw.circle(screen, color, (sx, sy), 8)
+        pygame.draw.circle(screen, (0, 0, 0), (sx, sy), 8)
 
     def draw_debug(self, game):
         lines = [
